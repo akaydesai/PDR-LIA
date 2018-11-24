@@ -40,6 +40,9 @@ for subgoal in preimg:
   for fml in split_all(subgoal):
     result.append(fml.simplify()) #simplify may not be required.
 
+print(result)
+# [[10 <= x], [x <= 7, x >= 0, y <= 10, y >= 0]]
+
 #Convert to CNF using tseitin-cnf tactic.
 preimg = t(Exists((xp, yp), Implies(x<10 , And(xp==x+1, yp==y+2, xp<=8, xp >=1, yp<=12, yp>=2))))
 tsi = Tactic('tseitin-cnf')

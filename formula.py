@@ -8,6 +8,7 @@ from z3 import *  #..bad!
 from z3.z3util import get_vars
 
 from collections import Iterable
+from bidict import bidict
 
 simplifyAll = lambda l: list(map(simplify, l))
 """
@@ -30,6 +31,9 @@ class ConjFml(Goal):
   self.primed is the primed version of the same.
   safe_varlist denotes that list of primes and unprimed variables is up to date. 
   If it is set to False, you need to run update_vars.
+
+  #TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
+  #This would need ConjFml to be it's own class, i.e. not extending Goal.
   """
   def __init__(self, id):
     """
@@ -100,6 +104,9 @@ class ConjFml(Goal):
   def update_vars(self):
     """
     Keep  variable lists up to date to prevent unwanted crap from happening.
+    Assumes all vars are unprimed. Do not use on transition system.
+
+    #TODO: Add check for existing prime vars.
 
     >>> x,y = Ints('x y')
     >>> fml = ConjFml('whatev')
@@ -118,6 +125,12 @@ class ConjFml(Goal):
     Int
     >>> fml1.primed[0].sort()
     Int
+    >>> fml.update_vars()
+    >>> fml.primed
+    [_p_x, _p_y]
+    >>> fml.safe_varlist
+    True
+
     """
     #First, dump all vars into a list.
     self.unprimed = []
@@ -125,15 +138,16 @@ class ConjFml(Goal):
       self.unprimed.extend(get_vars(clause))
     #Now, remove dupes while preserving order.
     self.unprimed = list(dict.fromkeys(self.unprimed))
-
     # Add "_p_" to var names to denote primed vars and create new Ints
     self.primed = Ints(map(lambda s: "_p_"+s, list(map(str,self.unprimed))))
+    
+    self.safe_varlist = True 
 
   def add(self, *args, update=False):
     """
     Similar to Goal.add() method, adds args to self. 
     args must be iterables over fmls.
-    e.g. g.add([x==2],[y==1]) is a valid call, but g.add(x==2), g.add(x==2,y==1) are not.
+    e.g. g.add([x==2],[y==1]), g.add(g) are valid calls, but g.add(x==2), g.add(x==2,y==1) are not.
     Also updates variables and converts self to strict CNF by calling simplify.
     Only use this method to add fmls. Otherwise fmls may not be in canonical form.
     
@@ -167,6 +181,12 @@ class ConjFml(Goal):
      x == y,
      Not(x == 9),
      x == 3 + y]
+    >>> fml1 = ConjFml('whatev1')
+    >>> fml1.add([x==1,y==2, Or(x>=0, y<=1)], update=True)
+    >>> fml1.unprimed
+    [x, y]
+    >>> fml1.primed
+    [_p_x, _p_y]
 
     """
     fmls = []
@@ -224,17 +244,41 @@ class ConjFml(Goal):
     """
     Return given clause of self in primed form.
     """
-    # if ownClause not in self: #slow, remove
+    # if ownClause not in self: #slow, disable, can use sets to speed this up and also allow deletion.
       # raise Exception("Clause not in ConjFml object!")
     if not self.safe_varlist:
       self.update_vars()
     return substitute(ownClause, list(zip(self.unprimed, self.primed)))
 
-  def preimage():
+  def preimage(self, fml, trans):
     """
-    Return preimage(as ConjFml) by doing existential quantification over primed variables.
+    Return preimage(as ConjFml) of self(wrt given formula(as ConjFml) -e.g. fml:=toConjFml(And(frames[k-1], !cube))) by doing existential quantification over primed variables.
+
+    #If transition is given in CNF, z3 hogs memory.
+    
+    >>> x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
+    >>> T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
+    >>> F = ConjFml('test')
+    >>> F.add([x==4,y==4], update=True)
+    
     """
-    return
+    split_all = Repeat(OrElse(Tactic('split-clause'), Tactic('skip')))
+    """
+    On appliying a tactic to a goal, the result is a list of subgoals s.t. the original goal is satisfiable iff at least one of the subgoals is satisfiable.
+    i.e. disjunction of goals. But each subgoal may not be a conjuct of constraints. Applying this tactical splits subgoals such that each subgoal is a conjunct of atomic constraints.
+    """
+    qe = Tactic('qe')
+
+    if not self.safe_varlist:
+      self.update_vars()
+
+    preimg = qe(Exists((self.primed), And(fml.as_expr(), trans , self.as_primed().as_expr())))
+    preimg_cubes = []
+    for subgoal in preimg:
+      for fml in split_all(subgoal):
+        preimg_cubes.append(fml.simplify()) #simplify to put in canonical form.
+    
+    return preimg_cubes
 
 class EnhanSolver(Solver):
   """
@@ -245,19 +289,20 @@ class EnhanSolver(Solver):
   """
 
   def __init__(self):
-    self.clauseLabels = []
-    self.table = bidict.bidict()
+    self.table = bidict()  #fml <-> uniq label.
+    self.safe_solver = True
     super(EnhanSolver, self).__init__()
 
-  def reset():
+  def reset(self):
     """
     reset also needs to clean up clauseLabels and table.
     """
-    self.clauseLabels = []
-    self.table = bidict.bidict()
+    self.table = bidict()
+    self.safe_solver = True #solver contents same as table.
+    super(EnhanSolver, self).reset()
 
 
-  def add_to_query(self, conjfmls): #CHANGE
+  def add_to_query(self, conjfmls):
     """
     Given a list of ConjFmls, check if their conjunction is sat. i.e. Adds conjunction of ConjFmls to solver(self).
     Also labels each clause, so that unsat_core can be generated and analyzed. Returns True if sat, False otherwise.
@@ -268,7 +313,7 @@ class EnhanSolver(Solver):
     1. Does removing s with pop(), preserve unsat core? i.e. Does unsat_core still contain clauses from s?
     Yes. It's preserved.
 
-
+    IMPORTANT: Make sure that the cube to be generalized is the last formula added to the query. Otherwise its labels might get overwritten.
     """
     # self.push() #Do not do this. Let the user explicitly push() wherever required
 
@@ -277,53 +322,61 @@ class EnhanSolver(Solver):
       for i, clause in zip(range(0,len(conjfml)), conjfml):
         #Check that children of clause are atomic. Not(x<=y) is atomic.
         #That'd be slow, skip.
-        label = str(conjfml.id+" "+str(i))
-        self.assert_and_track(clause, label) #label each clause.
-        clauseLabels.append(label)
+        label = str((conjfml.id,i))
+        #Add each clause to dict with itself as key, and label as value.
+        #So that the label is updated with the latest formula the clause appears in. 
+        self.table.forceput(label, clause)
+
+    self.safe_solver = False
     
-  def is_sat(self): #MAYBE CHANGE
+  def is_sat(self):
     """
     Similar to check() method but with labels.
     """
-    # return self.check(Bools(self.clauseLabels)) == sat  #Don't need to add labels in check() if constraints were added using assert_and_track
+    if not self.safe_solver:
+      for label in self.table.keys():
+        self.assert_and_track(self.table[label], label)
+      self.safe_solver = True 
+
+    # return self.check(Bools(self.table.keys())) == sat  #Don't need to add labels in check() if constraints were added using assert_and_track
     return self.check() == sat
 
-  def generalize_unsat(solver, init, cubeLabel): #CHANGE
-  """
-  Take a solver with Frame and Transition Relation in it. Also takes the cube(as ConjFml) and init states(as BoolRef? - whatever the original form was) to be generalized and return generalized cube.
+  def generalize_unsat(solver, init, trans, cube): #Bad design.
+    """
+    Takes the cube to be generalized and init states(as ConjFml) and returns generalized cube.
+    Note that F,T,and cube are all in solver at this point.
 
-  Generalization is done by returning only those clauses from cube which occur in the unsat core. But if this intersects init, then we block Not(init).
-  TODO: Test the ungeneralization.
-  """
-  #Expanded for clarity: [ cube.get(int(str(label).split()[1])) for label in solver.unsat_core() if cube.id == str(str(label).split()[0])]
-  
-  acc = []
-  g = ConjFml("genUNSAT")
-  
-  for label in solver.unsat_core():
-    lbl_clauseNum = int(str(label).split()[1])
-    lbl_id = str(str(label).split()[0])   
-    if cube.id == lbl_id:
-      acc.append(cube.get(lbl_clauseNum))
+    Generalization is done by returning only those clauses from cube which occur in the unsat core. But if this intersects init, then we block Not(init).
+    TODO: Test the ungeneralization.
+    """
+    #Expanded for clarity: [ cube.get(int(str(label).split()[1])) for label in solver.unsat_core() if cube.id == str(str(label).split()[0])]
+    
+    acc = []
+    g = ConjFml("gencube")
+    
+    for label in solver.unsat_core():
+      lbl_id, lbl_clauseNum = eval(str(label))
+      if cube.id == lbl_id:
+        acc.append(cube.get(lbl_clauseNum))
 
-  #Check if query still unsat? Nah.. not need.
-  #But we need to make sure acc does not intersect initial states.
-  #TODO: Test this.
-  s = Solver()
-  #Need to get clauses correrp to label.
-  s.add(init, )
-  if s.check() == sat:
-    g.add(c, toConjFml(Not(init)))
-  else:
-    g.add(acc)
-  g.simplify()
-  return g
+    acc = simplifyAll(acc)
+    #Check if query still unsat? Nah.. not need.
+    #But we need to make sure acc does not intersect initial states.
+    #TODO: Test this.
+    s = Solver()
+    #Need to get clauses correrp to label.
+    s.add(init, acc)
+    if s.check() == sat:
+      g.add(c, toConjFml(Not(init)))
+    else:
+      g.add(acc)
+    return g
 
 def to_ConjFml(fml):
   """
   Takes a BoolRef and returns equivalent in CNF as ConjFml.
 
-  Intended for use only on Not(cube), Not(clause). This is guranteed not to introduce extra tseitin variables.
+  Intended for use only on Not(cube), Not(clause). Thus guranteed not to introduce extra tseitin variables.
   """
   if not isinstance(fml, z3.z3.BoolRef):
     raise TypeError
@@ -342,4 +395,4 @@ f = ConjFml('test_f')
 f.add([x==1,y==2])
 
 s = EnhanSolver()
-s.addToQuery([g])
+s.add_to_query([g])
