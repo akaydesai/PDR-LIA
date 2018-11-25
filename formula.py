@@ -1,14 +1,18 @@
 """
 Module containing all the data structures for handling formulas.
 
-Prereqs: pip3 install z3-solver bidict
+Prereqs: pip3 install z3-solver #bidict
+
+Doctest: python3 -m doctest formula.py [-v]
 """
 
 from z3 import *  #..bad!
 from z3.z3util import get_vars
 
 from collections import Iterable
-from bidict import bidict
+from functools import reduce
+import itertools
+# from bidict import bidict
 
 simplifyAll = lambda l: list(map(simplify, l))
 """
@@ -35,38 +39,25 @@ class ConjFml(Goal):
   #TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
   #This would need ConjFml to be it's own class, i.e. not extending Goal.
   """
-  def __init__(self, id):
-    """
-    Constructor
-    >>> g = ConjFml('test_g')
-    >>> g.id
-    'test_g'
-    >>> g = ConjFml(2)
-    Traceback (most recent call last):
-      File "/usr/lib/python3.6/doctest.py", line 1330, in __run
-        compileflags, 1), test.globs)
-      File "<doctest formula.ConjFml.__init__[3]>", line 1, in <module>
-        g = ConjFml(2)
-      File "/home/akshay/Colg_files/SASS/formula.py", line 40, in __init__
-        raise TypeError("Non-string type id given.")
-    TypeError: Non-string type id given.
-    """
-    if not isinstance(id, str):
-      raise TypeError("Non-string type id given.")
+  def __init__(self):
 
+    # if not isinstance(id, str):
+      # raise TypeError("Non-string type id given.")
+
+    super(ConjFml, self).__init__()
     # self._index = -1
-    self.id = id
+    # self.id = id
     self.unprimed = []
     self.primed = []
     self.safe_varlist = True 
-    super(ConjFml, self).__init__()
+    
 
   def __eq__(self, other):
     """
     Equal iff of same type and have the same clauses. id doesn't matter.
 
-    >>> g = ConjFml('test_g')
-    >>> f = ConjFml('test_f')
+    >>> g = ConjFml()
+    >>> f = ConjFml()
     >>> g.add([x == 1, Or(x >= 0, y <= 1), y < 2])
     >>> f.add([y<2, x == 1, Or(x >= 0, y <= 1)])
     >>> g == g
@@ -109,13 +100,13 @@ class ConjFml(Goal):
     #TODO: Add check for existing prime vars.
 
     >>> x,y = Ints('x y')
-    >>> fml = ConjFml('whatev')
+    >>> fml = ConjFml()
     >>> fml.add([x==1,y==2, Or(x>=0, y<=1)])
     >>> fml.unprimed
     []
     >>> fml.primed
     []
-    >>> fml1 = ConjFml('whatev1')
+    >>> fml1 = ConjFml()
     >>> fml1.add([x==1,y==2, Or(x>=0, y<=1)], update=True)
     >>> fml1.unprimed
     [x, y]
@@ -158,7 +149,7 @@ class ConjFml(Goal):
     Need to simplify() at the end because everything needs to be in terms of <= and =, otherwise equality, 
     double negation elimination and other things will not work as expected.
 
-    >>> g = ConjFml('test')
+    >>> g = ConjFml()
     >>> g.add([x==2],[y==1])
     >>> g
     [x == 2, y == 1]
@@ -171,7 +162,7 @@ class ConjFml(Goal):
       File "/home/akshay/Colg_files/SASS/formula.py", line 123, in add
         if isinstance(iter(arg), Iterable): #if arg is a goal, conjfml or list of fmls
     TypeError: 'BoolRef' object is not iterable
-    >>> f = ConjFml('test_f')
+    >>> f = ConjFml()
     >>> f.add([x>=2, y<=3, x<3, y>4, x==y, x!=9, x == y+3])
     >>> f
     [x >= 2,
@@ -181,7 +172,7 @@ class ConjFml(Goal):
      x == y,
      Not(x == 9),
      x == 3 + y]
-    >>> fml1 = ConjFml('whatev1')
+    >>> fml1 = ConjFml()
     >>> fml1.add([x==1,y==2, Or(x>=0, y<=1)], update=True)
     >>> fml1.unprimed
     [x, y]
@@ -211,14 +202,14 @@ class ConjFml(Goal):
     returns a copy of self with the given clauses removed.(Clauses given as ConjFml. Allow lists?) 
     Since Goal/ConjFml do not support deletion, use this method instead.
 
-    >>> g = ConjFml('test')
+    >>> g = ConjFml()
     >>> g.add([x>=3, y<=4,y>x])
-    >>> temp = ConjFml('temp')
+    >>> temp = ConjFml()
     >>> temp.add([y<=4,x==y])
     >>> g.difference(temp)
     [x >= 3, Not(y <= x)]
     """
-    acc, newConj = [], ConjFml(clauses.id)
+    acc, newConj = [], ConjFml()
 
     for clause in self:
       if clause not in clauses:
@@ -250,129 +241,99 @@ class ConjFml(Goal):
       self.update_vars()
     return substitute(ownClause, list(zip(self.unprimed, self.primed)))
 
-  def preimage(self, fml, trans):
+  def preimage(self, frame, trans):
     """
-    Return preimage(as ConjFml) of self(wrt given formula(as ConjFml) -e.g. fml:=toConjFml(And(frames[k-1], !cube))) by doing existential quantification over primed variables.
+    Return preimage(as list of cubes) of cube(self)by doing existential quantification over primed variables.
+    trans must be a BoolRef.
 
-    #If transition is given in CNF, z3 hogs memory.
+    If transition is given in CNF(ConjFml/Goal), z3 hogs memory. 
     
     >>> x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
     >>> T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
-    >>> F = ConjFml('test')
-    >>> F.add([x==4,y==4], update=True)
+    >>> F = ConjFml()
+    >>> F.add([x>=0,y>=0,y<=20,x<=20], update=True)
+    >>> cube = ConjFml()
+    >>> cube.add([x==4,y==4])
+    >>> cube.preimage(F,T)
+    [[x == 2, y >= 0, y <= 20], [x >= 0, x <= 20, y == 6]]
     
     """
-    split_all = Repeat(OrElse(Tactic('split-clause'), Tactic('skip')))
+    if not isinstance(trans, BoolRef):
+      raise TypeError("Invalid type for transition system. Must be BoolRef.")
+
+    split_all = Then(Tactic('simplify'),Repeat(OrElse(Tactic('split-clause'), Tactic('skip'))))
     """
     On appliying a tactic to a goal, the result is a list of subgoals s.t. the original goal is satisfiable iff at least one of the subgoals is satisfiable.
     i.e. disjunction of goals. But each subgoal may not be a conjuct of constraints. Applying this tactical splits subgoals such that each subgoal is a conjunct of atomic constraints.
     """
-    qe = Tactic('qe')
+    propagate = Repeat(OrElse(Then(Tactic('propagate-ineqs'),Tactic('propagate-values')),Tactic('propagate-values')))  # Propagate inequalities and values.
+    qe = Tactic('qe')           # Quantifier Elim.
+    tsi = Tactic('tseitin-cnf') # Tseitin encoding
+    #Add solve-eqns tactic for gaussian elimination.
 
     if not self.safe_varlist:
       self.update_vars()
 
-    preimg = qe(Exists((self.primed), And(fml.as_expr(), trans , self.as_primed().as_expr())))
+    # compose = Then(Then(Then(Tactic('qe'), Tactic('tseitin-cnf')), split_all), propagate)
+    # preimg_cubes = compose(Exists((self.primed), And(frame.as_expr(), trans, Not(self.as_expr()), self.as_primed().as_expr())))
+
+    preimg = qe(Exists((self.primed), And(frame.as_expr(), trans, Not(self.as_expr()), self.as_primed().as_expr())))
+    
+    #Convert preimg to DNF without converting to CNF first.
+
     preimg_cubes = []
-    for subgoal in preimg:
-      for fml in split_all(subgoal):
-        preimg_cubes.append(fml.simplify()) #simplify to put in canonical form.
+    for subgoal in preimg_dnf:
+      # for subgoal in propagate(subgoal):
+      preimg_cubes.append(subgoal.simplify()) #simplify to put in canonical form.
     
     return preimg_cubes
 
-class EnhanSolver(Solver):
+def powerset(iterable):
+    """
+    Recipe from itertools doc page.
+    powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)
+    """
+    s = list(iterable)
+    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(1,len(s)+1))
+
+def generalize_unsat(solver, init, frame, trans, cube): #Bad design.
   """
-  Extended solver class with methods to abstract away adding labels to formulas(for unsat core).
+  Takes the cube(as ConjFml) to be generalized and returns generalized cube.
 
-  And maybe other things.
-  #Implement two way hashtable/dictionary mapping labels to clauses
+  Generalization is done by returning only those clauses from cube which occur in the unsat core. But if this intersects init, then we block Not(init).
+  TODO: Test the ungeneralization.
+
+  
   """
+  s = Solver()
+  s.add(frame,trans)
 
-  def __init__(self):
-    self.table = bidict()  #fml <-> uniq label.
-    self.safe_solver = True
-    super(EnhanSolver, self).__init__()
+  for subset in powerset(cube): #Find smallest subset of constraints from cube that keep the query unsat.
+    s.push()
+    gcube = Goal()
+    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
 
-  def reset(self):
-    """
-    reset also needs to clean up clauseLabels and table.
-    """
-    self.table = bidict()
-    self.safe_solver = True #solver contents same as table.
-    super(EnhanSolver, self).reset()
+    s.add(Not(gcube), toConjFml(cube).as_primed())
 
+    if s.check() == unsat:
+      break
 
-  def add_to_query(self, conjfmls):
-    """
-    Given a list of ConjFmls, check if their conjunction is sat. i.e. Adds conjunction of ConjFmls to solver(self).
-    Also labels each clause, so that unsat_core can be generated and analyzed. Returns True if sat, False otherwise.
-    
-    If you want unsat core, then use ONLY this method to add queries.
+    s.pop()
 
-    PROBELMS/QUESTIONS/TODO
-    1. Does removing s with pop(), preserve unsat core? i.e. Does unsat_core still contain clauses from s?
-    Yes. It's preserved.
+  gcube = simplifyAll(gcube)
 
-    IMPORTANT: Make sure that the cube to be generalized is the last formula added to the query. Otherwise its labels might get overwritten.
-    """
-    # self.push() #Do not do this. Let the user explicitly push() wherever required
+  #Check if query still unsat? Nah.. not need.
+  #But we need to make sure acc does not intersect initial states.
+  #TODO: Test this.
+  s = Solver()
+  #Need to get clauses correrp to label.
+  s.add(init, gcube)
+  if s.check() == sat:
+    gcube.add(toConjFml(Not(init)))
+  
+  return gcube
 
-    #Add labels for each clause.
-    for conjfml in conjfmls:
-      for i, clause in zip(range(0,len(conjfml)), conjfml):
-        #Check that children of clause are atomic. Not(x<=y) is atomic.
-        #That'd be slow, skip.
-        label = str((conjfml.id,i))
-        #Add each clause to dict with itself as key, and label as value.
-        #So that the label is updated with the latest formula the clause appears in. 
-        self.table.forceput(label, clause)
-
-    self.safe_solver = False
-    
-  def is_sat(self):
-    """
-    Similar to check() method but with labels.
-    """
-    if not self.safe_solver:
-      for label in self.table.keys():
-        self.assert_and_track(self.table[label], label)
-      self.safe_solver = True 
-
-    # return self.check(Bools(self.table.keys())) == sat  #Don't need to add labels in check() if constraints were added using assert_and_track
-    return self.check() == sat
-
-  def generalize_unsat(solver, init, trans, cube): #Bad design.
-    """
-    Takes the cube to be generalized and init states(as ConjFml) and returns generalized cube.
-    Note that F,T,and cube are all in solver at this point.
-
-    Generalization is done by returning only those clauses from cube which occur in the unsat core. But if this intersects init, then we block Not(init).
-    TODO: Test the ungeneralization.
-    """
-    #Expanded for clarity: [ cube.get(int(str(label).split()[1])) for label in solver.unsat_core() if cube.id == str(str(label).split()[0])]
-    
-    acc = []
-    g = ConjFml("gencube")
-    
-    for label in solver.unsat_core():
-      lbl_id, lbl_clauseNum = eval(str(label))
-      if cube.id == lbl_id:
-        acc.append(cube.get(lbl_clauseNum))
-
-    acc = simplifyAll(acc)
-    #Check if query still unsat? Nah.. not need.
-    #But we need to make sure acc does not intersect initial states.
-    #TODO: Test this.
-    s = Solver()
-    #Need to get clauses correrp to label.
-    s.add(init, acc)
-    if s.check() == sat:
-      g.add(c, toConjFml(Not(init)))
-    else:
-      g.add(acc)
-    return g
-
-def to_ConjFml(fml):
+def to_ConjFml(fml, id=''):
   """
   Takes a BoolRef and returns equivalent in CNF as ConjFml.
 
@@ -381,18 +342,69 @@ def to_ConjFml(fml):
   if not isinstance(fml, z3.z3.BoolRef):
     raise TypeError
   else:
+    cnj = ConjFml(id)
     tsi = Tactic('tseitin-cnf')
     cnf = tsi(fml) #cnf is list of Goals
     assert(len(cnf) == 1)
-    return cnf[0]
+    cnj.add(cnf[0].simplify())
+    return cnj
+
+def product(fmls):
+  """
+  >>> product([[x>1,x<1]])
+  [[x > 1], [x < 1]]
+  >>> product([[x>1],[x<1]])
+  [[x > 1, x < 1]]
+  >>> product([[x>1],[x<3,x>3],[x>=2]])
+  [[x > 1, x < 3, x >= 2], [x > 1, x > 3, x >= 2]]
+  """
+
+  return [list(e) for e in itertools.product(*fmls)]
+
+def to_DNF(fml):
+  """
+  Takes NNF fml as BoolRef and returns list of goals, s.t. all constraints in each goal are atomic.
+  
+  We only need to split Or() fmls.
+  """
+  def is_atomic(fml):
+    """
+    A fml is atomic if either is_arith(fml) or is_eq, is_le, is_lt, is_ge, is_gt, is_not. 
+    """
+    atomics = [is_arith, is_eq, is_le, is_lt, is_ge, is_gt, is_not]
+    return reduce(lambda a, b: a or b, [at(fml) for at in atomics])
+
+  acc = []
+
+  if is_atomic(fml):
+    return [fml]
+  elif is_or(fml):
+    for child in fml.children():
+      acc.extend(to_DNF(child))
+    return product([acc])
+  elif is_and(fml):
+    for child in fml.children():
+      acc.append(to_DNF(child))
+    return product(acc)
+  else:
+    raise RuntimeError
 
 #---------- For interactive testing ----------
 x,y = Ints('x y')
-g = ConjFml('test_g')
+g = ConjFml()
 g.add([x==1, Or(x>=0, y<=1),y<2], update=True)
 
-f = ConjFml('test_f')
+f = ConjFml()
 f.add([x==1,y==2])
 
-s = EnhanSolver()
-s.add_to_query([g])
+# s = EnhanSolver()
+# s.add_to_query([g])
+
+x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
+T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
+F = ConjFml()
+F.add([x>=0,y>=0,y<=20,x<=20], update=True)
+cube = ConjFml()
+cube.add([x==4,y==4])
+
+# to_DNF(And(x>=3,Or(x<8,y>5)))
