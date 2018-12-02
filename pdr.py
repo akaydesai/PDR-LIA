@@ -4,48 +4,73 @@ from formula import *
 from sys import exit
 from heapq import heappush, heappop
 
-I = 
-T = 
-P = 
+do_debug = True
 
-#T is typically in DNF?
-P = toConjFml(P)
+x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
+I_orig = And(x==0,y==8)
+T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+P_orig = x<y
 
+I = I_orig
+T = T_orig #T is typically in DNF?
+P = to_ConjFml(P_orig)
+
+F1 = to_ConjFml(P_orig)
+# F1 = ConjFml()
 #Trace
-frames = [I, P]
+frames = [to_ConjFml(I), F1]
 #Proof obligation queue
 pQueue = []
 
 def propagate(n):
   """
+  Propagates up to frontier(n).
   """
-  frames[n+1] = True
-  
+  if len(frames) <= n+1:
+    frames.append(ConjFml())
+
+  print("Called propagate(%i).\n Frontier frame[%i] is: %s" % (n, n+1, frames[n+1])) if do_debug else print(end='')
+  print("Frames: %s" % frames) if do_debug else print(end='')
+
   for k in range(1,n):
-    s = Solver()
-    s.add(T, frames[k])
+    solver = Solver()
+    solver.add(T, frames[k])
+    solver.push()
 
     for clause in set(frames[k]) - set(frames[k+1]):
-      primed_clause = frames[k].getPrimed(clause)
-      s.add(Not(primed_clause))
-      if s.check() == unsat:
-        frames[k+1].add([toConjFml(Not(clause))])
+      primed_clause = frames[k].get_primed(clause)
+      
+      solver.pop()
+      solver.push()
+      solver.add(Not(primed_clause))
+      
+      if solver.check() == unsat:
+        frames[k+1].add(to_ConjFml(clause))
+      # ---- Optional Subsumption check ----
+      # t = Solver()
+      # t.add(clause)
+      # removeList = []
+      # for weakClause in frames[k+1]:
+      #   t.add(Not(weakClause))
+      #   if t.check() == unsat: #weakClause is indeed weak.
+      #     removeList.append(weakClause)
+      # frames[k+1] = frames[k+1].difference(removeList)
+      # ---- -------------------------------
+    
+    frames[k+1] = to_ConjFml(frames[k+1].simplify().as_expr())
 
-        #---- Optional Subsumption check ----
-        t = Solver()
-        t.add(clause)
-        removeList = []
-        for weakClause in frames[k+1]:
-          t.add(Not(weakClause))
-          if t.check() == unsat: #weakClause is indeed weak.
-            removeList.append(weakClause)
-        frames[k+1] = frames[k+1].difference(removeList)
-        #---- -------------------------- ----
-        if frames[k] == frames[k+1]:
-          exit("P is valid in the system!")
+    if frames[k] == frames[k+1]:
+      print("Frames: %s" % frames) if do_debug else print(end='')
+      exit("P is valid in the system!")
+  
+  print("Done. Frontier frame[%i] is now: %s" % (n+1, frames[n+1])) if do_debug else print(end='')
+  
   return
 
 def block(cube, level):
+  """
+  Takes cube as ConjFml
+  """
   heappush(pQueue, (level, cube))
 
   while pQueue:
@@ -54,21 +79,68 @@ def block(cube, level):
     if level == 0:
       exit("P not satisfied!")
     
-    t = Solver()
-    t.add(frames[k],cube)
-    if t.check() == unsat: #cube is blocked at level.
+    solver = Solver()
+    solver.add(frames[level],cube)
+    
+    if solver.check() == unsat: #cube is blocked at level.
       continue             #look at next obligation.
 
-    s = EnhanSolver()
-    s.add_to_query([frames[k-1], toConjFml(Not(cube)), T, cube.as_primed()]) #Note:cube is a ConjFml.
-    if s.is_sat():
-      
+    solver.reset()
+    solver.add(frames[level-1], to_ConjFml(Not(cube.as_expr())), T, cube.as_primed()) #Note:cube is a ConjFml.
+
+    # yaSolver = Solver() #yet another solver.
+    # yaSolver.add(frames[level-1], T, cube.as_primed())
+
+    if solver.check() == sat:
+      #generalize cube from cube.preimage(frames[k-1],T) here
+      print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], cube.preimage(frames[level-1].as_expr(),T))) if do_debug else print(end='')
+      print("pQueue: %s" % pQueue) if do_debug else print(end='')
+
+      for preCube in cube.preimage(frames[level-1].as_expr(),T):
+        heappush(pQueue, (level-1, to_ConjFml(preCube.as_expr())))
+      heappush(pQueue, (level, cube))
     else:
-      genCube = s.generalize_unsat(I, cube)
-      for i in range(k,0,-1):
-        nc = to_ConjFml(Not(cube))[0]
-        if nc in frames[k]: #syntactic check
+      genCube = generalize_unsat(I, frames[level-1], T, cube) if do_debug else print(end='')
+      
+      print("%s is generalizedUNSAT to: %s" % (cube, genCube))
+      
+      for i in range(level,0,-1):
+        blockingClause = to_NNF(Not(genCube.as_expr()))
+        if blockingClause in frames[level]: #syntactic check
           break
-        frames[i].add([nc])
+        frames[i].add([blockingClause])
       #---- Optional: Push fwd. ----
       #-----------------------------
+
+#------------ PDR Main ------------
+n = 1
+s = Solver()
+s.add(I,Not(P.as_expr()))
+
+if s.check() == sat:
+  exit("P not satisfied in Init.")
+
+while True:
+  s.reset()
+  s.add(frames[n],Not(P.as_expr()))
+
+  if s.check() == unsat:
+    # print("\nSolver: %s" % s) if do_debug else print(end='')
+    propagate(n)
+    n += 1
+  else:
+    #------- Getting model as Boolref is ugly business! Why isn't there a built-in way to do this!?!? -------
+    # model = s.model()
+    # variables = [ Int(str(func())) for func in model ]
+    # values = [ model.eval(var) for var in variables]
+    # # print(model)
+    # state = ConjFml()
+    # state.add([ var == val for var,val in zip(variables,values) ])
+    #------------------------------------------------------------------------------------------------------
+    bad_cubes = to_DNF(And(frames[n].as_expr(),Not(P.as_expr()))) if len(frames[n]) != 0 else to_DNF(Not(P.as_expr()))
+    print("Bad cubes: %s" % bad_cubes) if do_debug else print(end='')
+    #Generalize here.
+
+    for bCube in bad_cubes:
+      print("Calling block(%s,%i)" % (bCube, n)) if do_debug else print(end='')
+      block(bCube, n)
