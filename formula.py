@@ -336,13 +336,25 @@ def generalize_unsat(init, frame, trans, cube):
 
     s.pop()
 
-  # assert(t.check() == unsat) #What if cube itself intersects Init?
+  assert(t.check() == unsat) #What if ungeneralized cube itself intersects Init? Is that possible?
   gcube = simplifyAll(gcube)
 
   genCube = ConjFml()
   genCube.add(gcube)
   
   return genCube
+
+def generalize_unsat_opt(init, frame, trans, cube):
+  """
+  Faster version of generalization. Decision tree/binary search like approach.
+
+  Takes advantage of the fact that, if a set of constraints is satisfiable then no subset of it is UNSAT.
+  """
+  s, t = Solver(), Solver()
+  s.add(frame,trans)
+
+  n = len(cube)
+
 
 def to_ConjFml(fml):
   """
@@ -462,7 +474,6 @@ def to_binary(fml):
 def to_DNF(fml):
   """
   Takes NNF fml in binary form as BoolRef and returns list of subgoals, s.t. all constraints in each subgoal are atomic.
-  BUGGY! NEED FIX!
   
   >>> to_DNF(And(x>=3,x<8,Or(y>=x,y==x+2),Or(x>y,x==y+1)))
   [[x >= 3, Not(8 <= x), y >= x, Not(x <= y)], [x >= 3, Not(8 <= x), y >= x, x == 1 + y], [x >= 3, Not(8 <= x), y == 2 + x, Not(x <= y)], [x >= 3, Not(8 <= x), y == 2 + x, x == 1 + y]]
@@ -503,10 +514,38 @@ def to_DNF(fml):
   flatten(dnfFml)
   return final
 
-def generalize_sat(fml, cube):
+def generalize_sat(init, disjGoal, cube):
   """
-  Takes a fml which is sat, and a cube which is a model for fml and returns a generalized cube.
+  Takes a fml which is sat, and a cube which is a model for fml and returns a generalized gcube. gcube => disjFml
+  disjFml is a list of Goals/ConjFml.
+
+  Not really needed.
   """
+  disjFml = Or([subgoal.as_expr() for subgoal in disjGoal])
+  s, t = Solver(), Solver()
+
+  for subset in powerset(cube):
+    gcube = ConjFml()
+    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
+    # print(gcube)
+    s.push()
+    s.add(Not(Implies(gcube.as_expr(), disjFml))) #check that gcube => disjFml
+
+    t.reset() #clean up prev.
+    t.add(init, gcube)
+
+    if s.check() == unsat and t.check() == unsat:
+      break
+
+    s.pop()
+
+  assert(t.check() == unsat) #What if ungeneralized cube itself intersects Init? Is that possible?
+  gcube = simplifyAll(gcube)
+
+  genCube = ConjFml()
+  genCube.add(gcube)
+  
+  return genCube
 
 
 #---------- For interactive testing ----------

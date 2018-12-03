@@ -8,8 +8,9 @@ do_debug = True
 
 x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
 I_orig = And(x==0,y==8)
-T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-P_orig = x<y
+# T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+P_orig = x<8 #x<y
 
 I = I_orig
 T = T_orig #T is typically in DNF?
@@ -29,7 +30,7 @@ def propagate(n):
   if len(frames) <= n+1:
     frames.append(ConjFml())
 
-  print("Called propagate(%i).\n Frontier frame[%i] is: %s" % (n, n+1, frames[n+1])) if do_debug else print(end='')
+  print("\nCalled propagate(%i).\n Frontier frame[%i] is: %s" % (n, n+1, frames[n+1])) if do_debug else print(end='')
   print("Frames: %s" % frames) if do_debug else print(end='')
 
   for k in range(1,n):
@@ -46,15 +47,14 @@ def propagate(n):
       
       if solver.check() == unsat:
         frames[k+1].add(to_ConjFml(clause))
-      # ---- Optional Subsumption check ----
-      # t = Solver()
-      # t.add(clause)
-      # removeList = []
-      # for weakClause in frames[k+1]:
-      #   t.add(Not(weakClause))
-      #   if t.check() == unsat: #weakClause is indeed weak.
-      #     removeList.append(weakClause)
-      # frames[k+1] = frames[k+1].difference(removeList)
+      # ---- Optional Subsumption check ---- #Not well-testd.
+      t = Solver()
+      removeList = []
+      for weakClause in frames[k+1]:
+        t.add(Implies(clause,weakClause))
+        if t.check() == unsat: #weakClause is indeed weak.
+          removeList.append(weakClause)
+      frames[k+1] = frames[k+1].difference(removeList)
       # ---- -------------------------------
     
     frames[k+1] = to_ConjFml(frames[k+1].simplify().as_expr())
@@ -92,17 +92,18 @@ def block(cube, level):
     # yaSolver.add(frames[level-1], T, cube.as_primed())
 
     if solver.check() == sat:
-      #generalize cube from cube.preimage(frames[k-1],T) here
       print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], cube.preimage(frames[level-1].as_expr(),T))) if do_debug else print(end='')
       print("pQueue: %s" % pQueue) if do_debug else print(end='')
 
+      # preimg = cube.preimage(frames[level-1].as_expr(),T)
+      # gPreCube = generalize_sat(I, preimg, preimg[0]) #pick a cube from preimg to generalize.
       for preCube in cube.preimage(frames[level-1].as_expr(),T):
         heappush(pQueue, (level-1, to_ConjFml(preCube.as_expr())))
       heappush(pQueue, (level, cube))
     else:
-      genCube = generalize_unsat(I, frames[level-1], T, cube) if do_debug else print(end='')
+      genCube = generalize_unsat(I, frames[level-1], T, cube)
       
-      print("%s is generalizedUNSAT to: %s" % (cube, genCube))
+      print("%s is generalizedUNSAT to: %s" % (cube, genCube)) if do_debug else print(end='')
       
       for i in range(level,0,-1):
         blockingClause = to_NNF(Not(genCube.as_expr()))
@@ -139,8 +140,9 @@ while True:
     #------------------------------------------------------------------------------------------------------
     bad_cubes = to_DNF(And(frames[n].as_expr(),Not(P.as_expr()))) if len(frames[n]) != 0 else to_DNF(Not(P.as_expr()))
     print("Bad cubes: %s" % bad_cubes) if do_debug else print(end='')
-    #Generalize here.
 
-    for bCube in bad_cubes:
-      print("Calling block(%s,%i)" % (bCube, n)) if do_debug else print(end='')
-      block(bCube, n)
+    # for bCube in bad_cubes:
+    gCube = generalize_sat(I, bad_cubes, bad_cubes[0]) #pick a cube from bad_cubes to generalize.
+    print(" %s generalized to %s" % (bad_cubes[0], gCube)) if do_debug else print(end='')
+    print("\nCalling block(%s,%i)" % (gCube, n)) if do_debug else print(end='')
+    block(gCube, n)
