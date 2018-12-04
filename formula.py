@@ -39,7 +39,7 @@ class ConjFml(Goal):
   safe_varlist denotes that list of primes and unprimed variables is up to date. 
   If it is set to False, you need to run update_vars.
 
-  #TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
+  #FUTURE TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
   #This would need ConjFml to be it's own class, i.e. not extending Goal.
   """
   def __init__(self):
@@ -323,10 +323,11 @@ def generalize_unsat(init, frame, trans, cube):
 
   for subset in powerset(cube): #Find smallest subset of constraints from cube that keep the query unsat.
     gcube = ConjFml()
-    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
+    # print("Trying to gen: ", And(subset))
+    gcube.add([And(subset)]) if len(subset) > 1 else gcube.add(subset)
     # print(gcube)
     s.push()
-    s.add(Not(gcube.as_expr()), cube.as_primed())
+    s.add(Not(gcube.as_expr()), gcube.as_primed())
 
     t.reset() #clean up prev.
     t.add(init, gcube)
@@ -516,10 +517,10 @@ def to_DNF(fml):
 
 def generalize_sat(init, disjGoal, cube):
   """
-  Takes a fml which is sat, and a cube which is a model for fml and returns a generalized gcube. gcube => disjFml
+  Takes a disjunctive fml which is sat, and a cube from it and returns a generalized gcube. gcube => disjFml
   disjFml is a list of Goals/ConjFml.
 
-  Not really needed.
+  Not used in block, only in main loop.
   """
   disjFml = Or([subgoal.as_expr() for subgoal in disjGoal])
   s, t = Solver(), Solver()

@@ -6,11 +6,25 @@ from heapq import heappush, heappop
 
 do_debug = True
 
-x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
+# -------------------- Input --------------------
+x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
 I_orig = And(x==0,y==8)
 # T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
 T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-P_orig = x<8 #x<y
+P_orig = Not(And(x==0,y==0))
+
+# x, l, _p_x, _p_l = Ints('x l _p_x _p_l')
+# I_orig = And(x==0,l==0)
+# T_orig = Or(Implies(l==0, Or(And(x<100,_p_x==x+1,_p_l==0), And(x>=100,_p_l==l))),Implies(l==1,And(_p_l==1,_p_x==x)))
+# P_orig = Or(And(l==1,x==100),l==0)
+
+# i, j, k, _p_i, _p_j, _p_k = Ints('i j k _p_i _p_j _p_k')
+# I_orig = And(i==0,j==0,k==0, l = 0)
+# P_orig = And(k == 3*i, j == 2*i)
+
+#------------------------------------------------
+comp = ConjFml()
+comp.add([z_false])
 
 I = I_orig
 T = T_orig #T is typically in DNF?
@@ -139,10 +153,16 @@ while True:
     # state.add([ var == val for var,val in zip(variables,values) ])
     #------------------------------------------------------------------------------------------------------
     bad_cubes = to_DNF(And(frames[n].as_expr(),Not(P.as_expr()))) if len(frames[n]) != 0 else to_DNF(Not(P.as_expr()))
-    print("Bad cubes: %s" % bad_cubes) if do_debug else print(end='')
+    # Remove [False] from bad_cubes.
+    bad_cubes = [cub for cub in bad_cubes if cub != comp]
 
-    # for bCube in bad_cubes:
-    gCube = generalize_sat(I, bad_cubes, bad_cubes[0]) #pick a cube from bad_cubes to generalize.
-    print(" %s generalized to %s" % (bad_cubes[0], gCube)) if do_debug else print(end='')
-    print("\nCalling block(%s,%i)" % (gCube, n)) if do_debug else print(end='')
-    block(gCube, n)
+    print("Bad cubes: %s" % bad_cubes) if do_debug else print(end='')
+    if len(bad_cubes) == 0: #Yikes
+      pass
+
+    # gCube = generalize_sat(I, bad_cubes, bad_cubes[0]) #pick a cube from bad_cubes to generalize. 
+    # print(" %s generalized to %s" % (bad_cubes[0], gCube)) if do_debug else print(end='')
+    for bCube in bad_cubes:
+    # bCube = gCube
+      print("\nCalling block(%s,%i)" % (bCube, n)) if do_debug else print(end='')
+      block(bCube, n)
