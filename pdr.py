@@ -4,23 +4,34 @@ from formula import *
 from sys import exit
 from heapq import heappush, heappop
 
-do_debug = True
+do_debug = False
 
 # -------------------- Input --------------------
-x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
-I_orig = And(x==0,y==8)
-# T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-P_orig = Not(And(x==0,y==0))
+# x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
+# I_orig = And(x==0,y==8)
+# # T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+# T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+# P_orig = Not(And(x==0,y==0))
 
 # x, l, _p_x, _p_l = Ints('x l _p_x _p_l')
 # I_orig = And(x==0,l==0)
-# T_orig = Or(Implies(l==0, Or(And(x<100,_p_x==x+1,_p_l==0), And(x>=100,_p_l==l))),Implies(l==1,And(_p_l==1,_p_x==x)))
-# P_orig = Or(And(l==1,x==100),l==0)
+# T_orig = Or(And(l==0,Or(And(x<10,_p_x==x+1,_p_l==l),And(x>=10,_p_l==1,_p_x==x))),And(l==1,_p_x==x,_p_l==l))
+# #TS with explicit limit for x, use for testing push forward.
+# P_orig = Or(And(l==1,x>10),l==0) #Use this to test push fwd.
+# # P_orig = Or(And(l==1,x==10),l==0) #This 
 
-# i, j, k, _p_i, _p_j, _p_k = Ints('i j k _p_i _p_j _p_k')
-# I_orig = And(i==0,j==0,k==0, l = 0)
+# x, l, k, _p_x, _p_l, _p_k = Ints('x l k _p_x _p_l _p_k')
+# I_orig = And(x==0,l==0, k>=0) #Dosn't work for I_orig = And(x==0,l==0) since k can be negative.
+# T_orig = And(_p_k==k,Or(And(l==0,Or(And(x<k,_p_x==x+1,_p_l==l),And(x>=k,_p_l==1,_p_x==x))),And(l==1,_p_x==x,_p_l==l)))
+# # P_orig = Or(And(l==1,x>k),l==0) #This isn't valid.
+# P_orig = Or(And(l==1,x==k),l==0) #This is valid!
+
+#simple_vardep
+i, j, k, l, _p_i, _p_j, _p_k, _p_l = Ints('i j k l _p_i _p_j _p_k _p_l')
+I_orig = And(i==0,j==0,k==0,l==0)
+T_orig = Or(And(l==0,Or(And(k<100,_p_i==i+1,_p_j==j+2,_p_k==k+3,_p_l==l),And(k>=100,_p_i==i,_p_j==j,_p_k==k,_p_l==1))), And(l==1,_p_i==i,_p_j==j,_p_k==k,_p_l==l))
 # P_orig = And(k == 3*i, j == 2*i)
+P_orig = Or(l==0,k>3*i) #Use this to test push forward.
 
 #------------------------------------------------
 comp = ConjFml()
@@ -75,7 +86,7 @@ def propagate(n):
 
     if frames[k] == frames[k+1]:
       print("Frames: %s" % frames) if do_debug else print(end='')
-      exit("P is valid in the system!")
+      exit("P is valid in the system!\n Fix-point is %s" %frames[k])
   
   print("Done. Frontier frame[%i] is now: %s" % (n+1, frames[n+1])) if do_debug else print(end='')
   
@@ -106,12 +117,19 @@ def block(cube, level):
     # yaSolver.add(frames[level-1], T, cube.as_primed())
 
     if solver.check() == sat:
-      print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], cube.preimage(frames[level-1].as_expr(),T))) if do_debug else print(end='')
+      preimg = cube.preimage(frames[level-1].as_expr(),T)
+      
       print("pQueue: %s" % pQueue) if do_debug else print(end='')
+
+      preimg = [cub for cub in preimg if cub != comp]
+      if preimg == []:
+        continue
+
+      print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], preimg)) if do_debug else print(end='')
 
       # preimg = cube.preimage(frames[level-1].as_expr(),T)
       # gPreCube = generalize_sat(I, preimg, preimg[0]) #pick a cube from preimg to generalize.
-      for preCube in cube.preimage(frames[level-1].as_expr(),T):
+      for preCube in preimg:
         heappush(pQueue, (level-1, to_ConjFml(preCube.as_expr())))
       heappush(pQueue, (level, cube))
     else:

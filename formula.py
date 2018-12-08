@@ -11,6 +11,7 @@ from z3.z3util import get_vars
 
 from collections import Iterable
 from functools import reduce
+from sys import exit
 import itertools
 # from bidict import bidict
 
@@ -68,8 +69,8 @@ class ConjFml(Goal):
     >>> g == f
     True
     """
-    if not isinstance(other, type(self)):
-      raise TypeError("'%s' is not of type '%s'." % (other,type(self)))
+    if not isinstance(other, type(self)) and not isinstance(other, type(Goal())):
+      raise TypeError("'%s' is not of type '%s' or %s." % (other,type(self),type(Goal())))
 
     if len(self) != len(other):
       return False
@@ -327,6 +328,7 @@ def generalize_unsat(init, frame, trans, cube):
     gcube.add([And(subset)]) if len(subset) > 1 else gcube.add(subset)
     # print(gcube)
     s.push()
+    # s.add(Not(cube.as_expr()), gcube.as_primed())
     s.add(Not(gcube.as_expr()), gcube.as_primed())
 
     t.reset() #clean up prev.
@@ -337,7 +339,9 @@ def generalize_unsat(init, frame, trans, cube):
 
     s.pop()
 
-  assert(t.check() == unsat) #What if ungeneralized cube itself intersects Init? Is that possible?
+  if t.check() == sat:
+    exit("P not satisfied.")
+
   gcube = simplifyAll(gcube)
 
   genCube = ConjFml()
