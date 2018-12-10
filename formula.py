@@ -254,29 +254,33 @@ class ConjFml(Goal):
       self.update_vars()
     return substitute(ownClause, list(zip(self.unprimed, self.primed)))
 
-  def preimage(self, frame, trans):
+  def preimage(self, cube, trans):
     """
-    Return preimage(as list of cubes) of cube(self) by doing existential quantification over primed variables.
-    trans must be a BoolRef.
+    Return preimage(as list of cubes) of frame(self) by doing existential quantification over primed variables in trans.
+    trans, cube must be as BoolRef.
 
-    If transition is given in CNF(ConjFml/Goal), z3 hogs memory.
+    Note: If transition is given in CNF(ConjFml/Goal), z3 hogs memory.
 
     Assumes that Implies is not a subformula after existential quantification. Everthing(to_NNF, to_binary, to_DNF) depends on this.
+
+    What about incrementality in finding of preimage? Is it possible in Z3? - future wurk.
     
+    These tests are obsolete.
     >>> x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
     >>> T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
     >>> F = ConjFml()
     >>> F.add([x>=0,y>=0,y<=20,x<=20], update=True)
     >>> cube = ConjFml()
     >>> cube.add([x==4,y==4])
-    >>> cube.preimage(F.as_expr(),T)
+    >>> F.preimage(cube,T)
     [[x == 2, y >= 0, y <= 20], [x >= 0, x <= 20, y == 6]]
-    
+       
     """
-    if not isinstance(trans, BoolRef) or  not isinstance(frame, BoolRef):
-      raise TypeError("Invalid type for transition system or frame. Both must be BoolRef.")
 
-    split_all = Then(Tactic('simplify'),Repeat(OrElse(Tactic('split-clause'), Tactic('skip'))))
+    if not isinstance(trans, BoolRef):
+      raise TypeError("Invalid type for transition system. Must be BoolRef.")
+
+    # split_all = Then(Tactic('simplify'),Repeat(OrElse(Tactic('split-clause'), Tactic('skip'))))
     """
     On appliying a tactic to a goal, the result is a list of subgoals s.t. the original goal is satisfiable iff at least one of the subgoals is satisfiable.
     i.e. disjunction of goals. But each subgoal may not be a conjuct of constraints. Applying this tactical splits subgoals such that each subgoal is a conjunct of atomic constraints. If input is in CNF then o/p is in DNF.
@@ -285,15 +289,15 @@ class ConjFml(Goal):
     qe = Tactic('qe')           # Quantifier Elim.
     #TODO: Add solve-eqns tactic to do gaussian elimination after propagatoin.
 
-    if not self.safe_varlist:
-     self.update_vars()
+    if not cube.safe_varlist:
+     cube.update_vars()
 
     allPrimedVars = []
-    allPrimedVars.extend(self.primed)
+    allPrimedVars.extend(cube.primed)
     allPrimedVars.extend([var for var in set(get_vars(T)) if str(var)[0:3] == '_p_'])
 
-    preimg = qe(Exists((allPrimedVars), And(frame, trans, self.as_primed().as_expr())))
-    # preimg = qe(Exists((allPrimedVars), And(frame, trans, Not(self.as_expr()), self.as_primed().as_expr())))
+    preimg = qe(Exists((allPrimedVars), And(self.as_expr(), trans, cube.as_primed().as_expr())))
+    # preimg = qe(Exists((allPrimedVars), And(self, trans, Not(cube.as_expr()), cube.as_primed().as_expr())))
     
     #Convert preimg to DNF without converting to CNF first.
     preimg_dnf = []
