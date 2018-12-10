@@ -121,12 +121,12 @@ def pdr(I, T, P):
         print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], preimg)) if do_debug else print(end='')
 
         # preimg = frames[level-1].preimage(cube,T)
-        # gPreCube = generalize_sat(I, preimg, preimg[0]) #pick a cube from preimg to generalize.
+        # gPreCube = generalize_sat_minimum(I, preimg, preimg[0]) #pick a cube from preimg to generalize.
         for preCube in preimg:
           heappush(pQueue, (level-1, to_ConjFml(preCube.as_expr())))
         heappush(pQueue, (level, cube))
       else:
-        genCube = generalize_unsat(I, frames[level-1], T, cube)
+        genCube = generalize_unsat_minimum(I, frames[level-1], T, cube)
         
         print("%s is generalizedUNSAT to: %s" % (cube, genCube)) if do_debug else print(end='')
         
@@ -167,7 +167,7 @@ def pdr(I, T, P):
       if len(bad_cubes) == 0: #Yikes
         pass
 
-      # gCube = generalize_sat(I, bad_cubes, bad_cubes[0]) #pick a cube from bad_cubes to generalize. 
+      # gCube = generalize_sat_minimum(I, bad_cubes, bad_cubes[0]) #pick a cube from bad_cubes to generalize. 
       # print(" %s generalized to %s" % (bad_cubes[0], gCube)) if do_debug else print(end='')
       for bCube in bad_cubes:
       # bCube = gCube

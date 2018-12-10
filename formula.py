@@ -324,7 +324,7 @@ def powerset(iterable):
     s = list(iterable)
     return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(1,len(s)+1))
 
-def generalize_unsat(init, frame, trans, cube):
+def generalize_unsat_minimum(init, frame, trans, cube):
   """
   Takes the cube(as ConjFml) to be generalized and returns generalized cube. 
   i.e. Returns MINIMUM unsat core in the cube. Could do minimal, but then this may be more general.
@@ -363,7 +363,7 @@ def generalize_unsat(init, frame, trans, cube):
   
   return genCube
 
-def generalize_unsat_opt(init, frame, trans, cube):
+def generalize_unsat_minimum_opt(init, frame, trans, cube):
   """
   Faster version of generalization. Decision tree/binary search like approach. Returns minimum unsat core in the cube.
   Takes advantage of the fact that, if a set of constraints is satisfiable then no subset of it is UNSAT.
@@ -375,7 +375,7 @@ def generalize_unsat_opt(init, frame, trans, cube):
 
   n = len(cube)
 
-def generalize_sat(init, disjGoal, cube):
+def generalize_sat_minimum(init, disjGoal, cube):
   """
   Takes a disjunctive fml which is sat, and a cube from it and returns a generalized gcube. gcube => disjFml
   disjFml is a list of Goals/ConjFml. Returns 
@@ -387,7 +387,7 @@ def generalize_sat(init, disjGoal, cube):
 
   for subset in powerset(cube):
     gcube = ConjFml()
-    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
+    gcube.add([And(subset)]) if len(subset) > 1 else gcube.add(subset)
     # print(gcube)
     s.push()
     s.add(Not(Implies(gcube.as_expr(), disjFml))) #check that gcube => disjFml
