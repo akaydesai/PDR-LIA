@@ -54,7 +54,8 @@ class ConjFml(Goal):
     self.unprimed = []
     self.primed = []
     self.safe_varlist = True 
-    
+    self.solver = Solver()
+    self.solver.push()
 
   def __eq__(self, other):
     """
@@ -203,6 +204,8 @@ class ConjFml(Goal):
     super(ConjFml, self).add(fmls)
     self.safe_varlist = False
 
+    self.solver.add(fmls)
+
     if update:
       self.update_vars()
 
@@ -226,6 +229,7 @@ class ConjFml(Goal):
     
     newConj.add(acc)
     newConj.update_vars()
+    newConj.solver.add(acc)
     return newConj
 
   def as_primed(self):

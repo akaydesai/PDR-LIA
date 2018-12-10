@@ -4,7 +4,7 @@ from formula import *
 from sys import exit
 from heapq import heappush, heappop
 
-do_debug = False
+do_debug = True
 
 # -------------------- Input --------------------
 x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
