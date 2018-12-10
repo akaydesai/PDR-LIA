@@ -120,7 +120,7 @@ def pdr(I, T, P):
       # yaSolver.add(frames[level-1], T, cube.as_primed())
 
       if solver.check() == sat:
-        preimg = cube.preimage(frames[level-1].as_expr(),T)
+        preimg = frames[level-1].preimage(cube,T)
         
         print("pQueue: %s" % pQueue) if do_debug else print(end='')
 
@@ -130,7 +130,7 @@ def pdr(I, T, P):
 
         print("Preimage of %s in frame %s is: %s" % (cube, frames[level-1], preimg)) if do_debug else print(end='')
 
-        # preimg = cube.preimage(frames[level-1].as_expr(),T)
+        # preimg = frames[level-1].preimage(cube,T)
         # gPreCube = generalize_sat(I, preimg, preimg[0]) #pick a cube from preimg to generalize.
         for preCube in preimg:
           heappush(pQueue, (level-1, to_ConjFml(preCube.as_expr())))
@@ -148,17 +148,14 @@ def pdr(I, T, P):
         #---- Optional: Push fwd. ----
         #-----------------------------
 
-  s = Solver()
-  s.add(I,Not(P.as_expr()))
+  #---------- PDR Main Loop begins here ----------
 
-  if s.check() == sat:
+  if frames[0].solver.check(Not(P.as_expr())) == sat:
     exit("P not satisfied in Init.  \nTook %i propagations." % n-1)
 
   while True:
-    s.reset()
-    s.add(frames[n],Not(P.as_expr()))
 
-    if s.check() == unsat:
+    if frames[n].solver.check(Not(P.as_expr())) == unsat:
       # print("\nSolver: %s" % s) if do_debug else print(end='')
       propagate(n)
       n += 1
