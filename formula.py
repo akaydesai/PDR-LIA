@@ -326,30 +326,34 @@ def powerset(iterable):
 
 def generalize_unsat(init, frame, trans, cube):
   """
-  Takes the cube(as ConjFml) to be generalized and returns generalized cube.
-  Untested.
+  Takes the cube(as ConjFml) to be generalized and returns generalized cube. 
+  i.e. Returns MINIMUM unsat core in the cube. Could do minimal, but then this may be more general.
   """
-  s, t = Solver(), Solver()
-  s.add(frame,trans)
+  s = Solver()
+  s.add(init)
+  s.push()
+
+  frame.solver.push()
+  frame.solver.add(trans)
 
   for subset in powerset(cube): #Find smallest subset of constraints from cube that keep the query unsat.
     gcube = ConjFml()
     # print("Trying to gen: ", And(subset))
     gcube.add([And(subset)]) if len(subset) > 1 else gcube.add(subset)
     # print(gcube)
+    frame.solver.push()
+
+    s.pop() #remove prev gcube.
     s.push()
-    # s.add(Not(cube.as_expr()), gcube.as_primed())
-    s.add(Not(gcube.as_expr()), gcube.as_primed())
+    s.add(gcube)
 
-    t.reset() #clean up prev.
-    t.add(init, gcube)
-
-    if s.check() == unsat and t.check() == unsat:
+    # if frame.solver.check(Not(cube.as_expr()), gcube.as_primed().as_expr()) == unsat and s.check() == unsat:
+    if frame.solver.check(Not(gcube.as_expr()), gcube.as_primed().as_expr()) == unsat and s.check() == unsat:
       break
 
-    s.pop()
+  frame.solver.pop() #remove trans
 
-  if t.check() == sat:
+  if s.check() == sat:
     exit("P not satisfied.")
 
   gcube = simplifyAll(gcube)
@@ -361,8 +365,8 @@ def generalize_unsat(init, frame, trans, cube):
 
 def generalize_unsat_opt(init, frame, trans, cube):
   """
-  Faster version of generalization. Decision tree/binary search like approach.
-
+  Faster version of generalization. Decision tree/binary search like approach. Returns minimum unsat core in the cube.
+  NOT IMPLEMENTED.
   Takes advantage of the fact that, if a set of constraints is satisfiable then no subset of it is UNSAT.
   """
   s, t = Solver(), Solver()
@@ -370,6 +374,38 @@ def generalize_unsat_opt(init, frame, trans, cube):
 
   n = len(cube)
 
+def generalize_sat(init, disjGoal, cube):
+  """
+  Takes a disjunctive fml which is sat, and a cube from it and returns a generalized gcube. gcube => disjFml
+  disjFml is a list of Goals/ConjFml.
+
+  Not used in block, only in main loop.
+  """
+  disjFml = Or([subgoal.as_expr() for subgoal in disjGoal])
+  s, t = Solver(), Solver()
+
+  for subset in powerset(cube):
+    gcube = ConjFml()
+    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
+    # print(gcube)
+    s.push()
+    s.add(Not(Implies(gcube.as_expr(), disjFml))) #check that gcube => disjFml
+
+    t.reset() #clean up prev.
+    t.add(init, gcube)
+
+    if s.check() == unsat and t.check() == unsat:
+      break
+
+    s.pop()
+
+  assert(t.check() == unsat) #What if ungeneralized cube itself intersects Init? Is that possible?
+  gcube = simplifyAll(gcube)
+
+  genCube = ConjFml()
+  genCube.add(gcube)
+  
+  return genCube
 
 def to_ConjFml(fml):
   """
@@ -528,40 +564,6 @@ def to_DNF(fml):
 
   flatten(dnfFml)
   return final
-
-def generalize_sat(init, disjGoal, cube):
-  """
-  Takes a disjunctive fml which is sat, and a cube from it and returns a generalized gcube. gcube => disjFml
-  disjFml is a list of Goals/ConjFml.
-
-  Not used in block, only in main loop.
-  """
-  disjFml = Or([subgoal.as_expr() for subgoal in disjGoal])
-  s, t = Solver(), Solver()
-
-  for subset in powerset(cube):
-    gcube = ConjFml()
-    gcube.add(And(subset)) if len(subset) > 1 else gcube.add(subset)
-    # print(gcube)
-    s.push()
-    s.add(Not(Implies(gcube.as_expr(), disjFml))) #check that gcube => disjFml
-
-    t.reset() #clean up prev.
-    t.add(init, gcube)
-
-    if s.check() == unsat and t.check() == unsat:
-      break
-
-    s.pop()
-
-  assert(t.check() == unsat) #What if ungeneralized cube itself intersects Init? Is that possible?
-  gcube = simplifyAll(gcube)
-
-  genCube = ConjFml()
-  genCube.add(gcube)
-  
-  return genCube
-
 
 #---------- For interactive testing ----------
 x,y = Ints('x y')
