@@ -7,31 +7,31 @@ from heapq import heappush, heappop
 do_debug = True
 
 # -------------------- Input --------------------
-x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
-I_orig = And(x==0,y==8)
-# T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-P_orig = Not(And(x==0,y==0))
+# x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
+# I_orig = And(x==0,y==8)
+# # T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+# T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+# P_orig = Not(And(x==0,y==0)) #Is valid.
 
 # x, l, _p_x, _p_l = Ints('x l _p_x _p_l')
 # I_orig = And(x==0,l==0)
 # T_orig = Or(And(l==0,Or(And(x<10,_p_x==x+1,_p_l==l),And(x>=10,_p_l==1,_p_x==x))),And(l==1,_p_x==x,_p_l==l))
 # #TS with explicit limit for x, use for testing push forward.
-# P_orig = Or(And(l==1,x>10),l==0) #Use this to test push fwd.
-# # P_orig = Or(And(l==1,x==10),l==0) #This 
+# # P_orig = Or(And(l==1,x>10),l==0) #Use this prop to test push fwd. Is invalid.
+# P_orig = Or(And(l==1,x==10),l==0) #This is valid.
 
 # x, l, k, _p_x, _p_l, _p_k = Ints('x l k _p_x _p_l _p_k')
 # I_orig = And(x==0,l==0, k>=0) #Dosn't work for I_orig = And(x==0,l==0) since k can be negative.
 # T_orig = And(_p_k==k,Or(And(l==0,Or(And(x<k,_p_x==x+1,_p_l==l),And(x>=k,_p_l==1,_p_x==x))),And(l==1,_p_x==x,_p_l==l)))
-# # P_orig = Or(And(l==1,x>k),l==0) #This isn't valid.
-# P_orig = Or(And(l==1,x==k),l==0) #This is valid!
+# P_orig = Or(And(l==1,x>k),l==0) #This isn't valid.
+# # P_orig = Or(And(l==1,x==k),l==0) #This is valid!
 
 #simple_vardep
 # i, j, k, l, _p_i, _p_j, _p_k, _p_l = Ints('i j k l _p_i _p_j _p_k _p_l')
 # I_orig = And(i==0,j==0,k==0,l==0)
 # T_orig = Or(And(l==0,Or(And(k<100,_p_i==i+1,_p_j==j+2,_p_k==k+3,_p_l==l),And(k>=100,_p_i==i,_p_j==j,_p_k==k,_p_l==1))), And(l==1,_p_i==i,_p_j==j,_p_k==k,_p_l==l))
-# # P_orig = And(k == 3*i, j == 2*i)
-# P_orig = Or(l==0,k>3*i) #Use this to test push forward.
+# P_orig = And(k == 3*i, j == 2*i) #This is valid. 
+# # P_orig = Or(l==0,k>3*i) #Use this to test push forward. Not valid.
 
 #------------ PDR Main ------------
 def pdr(I, T, P):
@@ -50,6 +50,10 @@ def pdr(I, T, P):
   def propagate(n):
     """
     Propagates up to frontier(n).
+  
+    For large global TS, keep two solvers per frame? One with TS the other without. ???
+
+    Future wurk: Modify solver CDCL to maintain a table of implied clauses to make subsumption check go faster.
     """
     nonlocal pQueue, frames, comp
 
@@ -60,28 +64,23 @@ def pdr(I, T, P):
     print("Frames: %s" % frames) if do_debug else print(end='')
 
     for k in range(1,n):
-      solver = Solver()
-      solver.add(T, frames[k])
-      solver.push()
+      frames[k].solver.push()
+      frames[k].solver.add(T)
 
       for clause in set(frames[k]) - set(frames[k+1]):
         primed_clause = frames[k].get_primed(clause)
         
-        solver.pop()
-        solver.push()
-        solver.add(Not(primed_clause))
-        
-        if solver.check() == unsat:
+        if frames[k].solver.check(Not(primed_clause)) == unsat:
           frames[k+1].add(to_ConjFml(clause))
         # ---- Optional Subsumption check ---- #Not well-testd.
-        t = Solver()
+        t = Solver()        #Maybe modify solver CDCL to maintain a table of implied clauses to make this go faster,
         removeList = []
         for weakClause in frames[k+1]:
-          t.add(Implies(clause,weakClause))
-          if t.check() == unsat: #weakClause is indeed weak.
+          if t.check(Implies(clause,weakClause)) == unsat: #weakClause is indeed weak.
             removeList.append(weakClause)
         frames[k+1] = frames[k+1].difference(removeList)
         # ---- -------------------------------
+      frames[k].solver.pop() #Remove TS
       
       frames[k+1] = to_ConjFml(frames[k+1].simplify().as_expr())
 

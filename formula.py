@@ -42,6 +42,8 @@ class ConjFml(Goal):
 
   #FUTURE TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
   #This would need ConjFml to be it's own class, i.e. not extending Goal.
+
+  For large global TS, keep two solvers per frame? One with TS the other without. ???
   """
   def __init__(self):
 
@@ -204,7 +206,7 @@ class ConjFml(Goal):
     super(ConjFml, self).add(fmls)
     self.safe_varlist = False
 
-    self.solver.add(fmls)
+    self.solver.add(fmls) # No need to push since clauses never get removed from frames. push() manually if needed.
 
     if update:
       self.update_vars()
@@ -274,7 +276,7 @@ class ConjFml(Goal):
     >>> cube.add([x==4,y==4])
     >>> F.preimage(cube,T)
     [[x == 2, y >= 0, y <= 20], [x >= 0, x <= 20, y == 6]]
-       
+
     """
 
     if not isinstance(trans, BoolRef):
