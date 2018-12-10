@@ -1,5 +1,5 @@
 """
-Module containing all the data structures and for handling formulas.
+This module contains all the data structures and functions required for handling formulas.
 
 Prereqs: pip3 install z3-solver #bidict
 
@@ -366,8 +366,9 @@ def generalize_unsat(init, frame, trans, cube):
 def generalize_unsat_opt(init, frame, trans, cube):
   """
   Faster version of generalization. Decision tree/binary search like approach. Returns minimum unsat core in the cube.
-  NOT IMPLEMENTED.
   Takes advantage of the fact that, if a set of constraints is satisfiable then no subset of it is UNSAT.
+
+  NOT IMPLEMENTED.
   """
   s, t = Solver(), Solver()
   s.add(frame,trans)
@@ -377,7 +378,7 @@ def generalize_unsat_opt(init, frame, trans, cube):
 def generalize_sat(init, disjGoal, cube):
   """
   Takes a disjunctive fml which is sat, and a cube from it and returns a generalized gcube. gcube => disjFml
-  disjFml is a list of Goals/ConjFml.
+  disjFml is a list of Goals/ConjFml. Returns 
 
   Not used in block, only in main loop.
   """
