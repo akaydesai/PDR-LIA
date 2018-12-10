@@ -7,11 +7,11 @@ from heapq import heappush, heappop
 do_debug = True
 
 # -------------------- Input --------------------
-# x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
-# I_orig = And(x==0,y==8)
-# # T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-# T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-# P_orig = Not(And(x==0,y==0)) #Is valid.
+x, y, _p_x, _p_y = Ints('x y _p_x _p_y')
+I_orig = And(x==0,y==8)
+# T_orig = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+T_orig = Or(And(x < 8, y <= 8, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+P_orig = Not(And(x==0,y==0)) #Is valid.
 
 # x, l, _p_x, _p_l = Ints('x l _p_x _p_l')
 # I_orig = And(x==0,l==0)
@@ -23,15 +23,15 @@ do_debug = True
 # x, l, k, _p_x, _p_l, _p_k = Ints('x l k _p_x _p_l _p_k')
 # I_orig = And(x==0,l==0, k>=0) #Dosn't work for I_orig = And(x==0,l==0) since k can be negative.
 # T_orig = And(_p_k==k,Or(And(l==0,Or(And(x<k,_p_x==x+1,_p_l==l),And(x>=k,_p_l==1,_p_x==x))),And(l==1,_p_x==x,_p_l==l)))
-# P_orig = Or(And(l==1,x>k),l==0) #This isn't valid.
-# # P_orig = Or(And(l==1,x==k),l==0) #This is valid!
+# # P_orig = Or(And(l==1,x>k),l==0) #This isn't valid.
+# P_orig = Or(And(l==1,x==k),l==0) #This is valid!
 
 #simple_vardep
 # i, j, k, l, _p_i, _p_j, _p_k, _p_l = Ints('i j k l _p_i _p_j _p_k _p_l')
 # I_orig = And(i==0,j==0,k==0,l==0)
 # T_orig = Or(And(l==0,Or(And(k<100,_p_i==i+1,_p_j==j+2,_p_k==k+3,_p_l==l),And(k>=100,_p_i==i,_p_j==j,_p_k==k,_p_l==1))), And(l==1,_p_i==i,_p_j==j,_p_k==k,_p_l==l))
-# P_orig = And(k == 3*i, j == 2*i) #This is valid. 
-# # P_orig = Or(l==0,k>3*i) #Use this to test push forward. Not valid.
+# # P_orig = And(k == 3*i, j == 2*i) #This is valid. 
+# P_orig = Or(l==0,k>3*i) #Use this to test push forward. Not valid.
 
 #------------ PDR Main ------------
 def pdr(I, T, P):
@@ -106,19 +106,10 @@ def pdr(I, T, P):
       if level == 0:
         exit("P not satisfied!\n  Took %i propagations." % (n-1))
       
-      solver = Solver()
-      solver.add(frames[level],cube)
-      
-      if solver.check() == unsat: #cube is blocked at level.
+      if frames[level].solver.check(cube.as_expr()) == unsat: #cube is blocked at level.
         continue             #look at next obligation.
 
-      solver.reset()
-      solver.add(frames[level-1], to_ConjFml(Not(cube.as_expr())), T, cube.as_primed()) #Note:cube is a ConjFml.
-
-      # yaSolver = Solver() #yet another solver.
-      # yaSolver.add(frames[level-1], T, cube.as_primed())
-
-      if solver.check() == sat:
+      if frames[level-1].solver.check(Not(cube.as_expr()), T, cube.as_primed().as_expr()) == sat: #Note:cube is a ConjFml.
         preimg = frames[level-1].preimage(cube,T)
         
         print("pQueue: %s" % pQueue) if do_debug else print(end='')
@@ -145,6 +136,7 @@ def pdr(I, T, P):
             break
           frames[i].add([blockingClause])
         #---- Optional: Push fwd. ----
+        # propagate(n+2) #+2 to prevent appending new frame.
         #-----------------------------
 
   #---------- PDR Main Loop begins here ----------

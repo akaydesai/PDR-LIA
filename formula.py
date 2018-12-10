@@ -265,7 +265,7 @@ class ConjFml(Goal):
 
     Assumes that Implies is not a subformula after existential quantification. Everthing(to_NNF, to_binary, to_DNF) depends on this.
 
-    What about incrementality in finding of preimage? Is it possible in Z3? - future wurk.
+    Future wurk: What about incrementality in finding of preimage? Is it possible with Z3 Tactics?
     
     These tests are obsolete.
     >>> x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
