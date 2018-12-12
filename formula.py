@@ -3,7 +3,7 @@ This module contains all the data structures and functions required for handling
 
 Prereqs: pip3 install z3-solver #bidict
 
-Doctest: python3 -m doctest formula.py [-v]
+To run automated tests using doctest, do: python3 -m doctest formula.py [-v]
 """
 
 from z3 import *  #..bad!
@@ -26,10 +26,11 @@ z_false = simplify(_b_!=_b_)
 class ConjFml(Goal):
   """
   ConjunctiveFormula: Extension of Goal to store and manipulate conjunctive formulas.
-  Makes working with formulas for frames, properties and queries easier.
-  Use to represent frames, property(P) and !P. 
+  Makes working with formulas for frames, properties and queries easier. Each instance of ConjFml also maintains its own solver.
+  Used to represent frames, cubes, etc. 
   IMPORTANT: Assumes that each formula added to it is in CNF. 
-  USE ONLY the add method to add formulas. Do not use insert and other methods from parent; those are not overridden, so they do not convert to strict CNF or change flags(safe_varlist).
+  USE ONLY the add method to add formulas. Do not use insert and other methods from parent; those are not overridden, 
+  so they do not convert to strict CNF or change flags(safe_varlist).
   
   Converts cnf formula to strict CNF if added using add method.
   For our purposes 'strict' CNF is defined as CNF where no clause has nested non-atomic formulas.
@@ -40,7 +41,8 @@ class ConjFml(Goal):
   safe_varlist denotes that list of primes and unprimed variables is up to date. 
   If it is set to False, you need to run update_vars.
 
-  #FUTURE TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
+  #FUTURE TODO: Store clauses in a set, this would allow deletion, musch faster __contains__, 
+    but not sure if it'd be true speed up as z3 GoalObj isn't mutable.
   #This would need ConjFml to be it's own class, i.e. not extending Goal.
 
   For large global TS, keep two solvers per frame? One with TS the other without. ???
@@ -61,8 +63,9 @@ class ConjFml(Goal):
 
   def __eq__(self, other):
     """
-    Equal iff of same type and have the same clauses. id doesn't matter.
-
+    Equal iff of same type and have the same clauses.
+  
+    >>> x,y = Ints('x y')
     >>> g = ConjFml()
     >>> f = ConjFml()
     >>> g.add([x == 1, Or(x >= 0, y <= 1), y < 2])
@@ -153,7 +156,9 @@ class ConjFml(Goal):
     args must be iterables over fmls.
     e.g. g.add([x==2],[y==1]), g.add(g) are valid calls, but g.add(x==2), g.add(x==2,y==1) are not.
     Also updates variables and converts self to strict CNF by calling simplify.
-    Only use this method to add fmls. Otherwise fmls may not be in canonical form.
+    Also adds adds the given formulas to its solver instance.
+    Use only this method to add fmls. Otherwise fmls may not be in canonical form. 
+    Canonical form uses atomic formulas with only =,<=,>=, Not. >,< is not allowed.
     
     update is disabled by default so that list of variables is not generated on adding every clause, that would be wasteful.
 
@@ -161,7 +166,8 @@ class ConjFml(Goal):
 
     Need to simplify() at the end because everything needs to be in terms of <= and =, otherwise equality, 
     double negation elimination and other things will not work as expected.
-
+    
+    >>> x,y = Ints('x y')
     >>> g = ConjFml()
     >>> g.add([x==2],[y==1])
     >>> g
@@ -213,9 +219,10 @@ class ConjFml(Goal):
 
   def difference(self, clauses):
     """
-    returns a copy of self with the given clauses removed.(Clauses given as ConjFml. Allow lists?) 
+    returns a copy of self with the given clauses removed.(clauses is an iterable over formulas.) 
     Since Goal/ConjFml do not support deletion, use this method instead.
-
+    
+    >>> x,y = Ints('x y')
     >>> g = ConjFml()
     >>> g.add([x>=3, y<=4,y>x])
     >>> temp = ConjFml()
@@ -236,7 +243,8 @@ class ConjFml(Goal):
 
   def as_primed(self):
     """
-    Returns entire goal in primed form. i.e. Replaces unprimed vars with primed ones. Be careful not to call on Transition or on an already primed formula. No checks are performed to prevent this.
+    Returns entire goal in primed form. i.e. Replaces unprimed vars with primed ones. 
+    Be careful not to call on Transition or on an already primed formula. No checks are performed to prevent this.
 
     Note that it returns a Goal and not a formula. Use as_expr() to obtain formula.
     """
@@ -267,7 +275,6 @@ class ConjFml(Goal):
 
     Future wurk: What about incrementality in finding of preimage? Is it possible with Z3 Tactics?
     
-    These tests are obsolete.
     >>> x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
     >>> T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
     >>> F = ConjFml()
@@ -296,7 +303,7 @@ class ConjFml(Goal):
 
     allPrimedVars = []
     allPrimedVars.extend(cube.primed)
-    allPrimedVars.extend([var for var in set(get_vars(T)) if str(var)[0:3] == '_p_'])
+    allPrimedVars.extend([var for var in set(get_vars(trans)) if str(var)[0:3] == '_p_'])
 
     preimg = qe(Exists((allPrimedVars), And(self.as_expr(), trans, cube.as_primed().as_expr())))
     # preimg = qe(Exists((allPrimedVars), And(self, trans, Not(cube.as_expr()), cube.as_primed().as_expr())))
@@ -363,9 +370,9 @@ def generalize_unsat_minimum(init, frame, trans, cube):
   
   return genCube
 
-def generalize_unsat_minimum_opt(init, frame, trans, cube):
+def generalize_unsat_minimal(init, frame, trans, cube):
   """
-  Faster version of generalization. Decision tree/binary search like approach. Returns minimum unsat core in the cube.
+  Faster version of generalization. Decision tree/binary search like approach. Returns a minimal unsat core in the cube.
   Takes advantage of the fact that, if a set of constraints is satisfiable then no subset of it is UNSAT.
 
   NOT IMPLEMENTED.
@@ -413,7 +420,8 @@ def to_ConjFml(fml):
   Takes a BoolRef and returns equivalent in CNF as ConjFml.
 
   Intended for use only on Not(cube), Not(clause). Thus guranteed not to introduce extra tseitin variables.
-
+  
+  >>> x,y = Ints('x y')
   >>> to_ConjFml(x<8)
   [Not(8 <= x)]
   >>> to_ConjFml(Not(x>=8))
@@ -433,7 +441,8 @@ def to_ConjFml(fml):
 def product(fmls):
   """
   Not used.
-
+  
+  >>> x,y = Ints('x y')
   >>> product([[x>1,x<1]])
   [[x > 1], [x < 1]]
   >>> product([[x>1],[x<1]])
@@ -466,7 +475,8 @@ def is_leaf(fml):
 def to_NNF(fml):
   """
   Takes an arbitrary BoolRef and returns another in canonical NNF.
-
+  
+  >>> x,y = Ints('x y')
   >>> to_NNF(Not(And(x>=8,y<9)))
   Or(Not(x >= 8), 9 <= y)
   >>> to_NNF(Or(And(x>=8,y<9),Not(Or(x==4,And(x==x+1,y<1)))))
@@ -500,7 +510,8 @@ def to_NNF(fml):
 def to_binary(fml):
     """
     Takes NNF fml and converts it to binary form, i.e. each operation(or,and) has exactly two arguments.
-
+    
+    >>> x,y = Ints('x y')
     >>> to_binary(And(x > 1, y < 4, x > y))
     And(And(x > 1, y < 4), x > y)
     >>> to_binary(Or(And(x >= 2, x <= 2, Not(8 <= x)),And(y >= 6, y <= 6, Not(y <= 0))))
@@ -527,6 +538,7 @@ def to_DNF(fml):
   """
   Takes NNF fml in binary form as BoolRef and returns list of subgoals, s.t. all constraints in each subgoal are atomic.
   
+  >>> x,y = Ints('x y')
   >>> to_DNF(And(x>=3,x<8,Or(y>=x,y==x+2),Or(x>y,x==y+1)))
   [[x >= 3, Not(8 <= x), y >= x, Not(x <= y)], [x >= 3, Not(8 <= x), y >= x, x == 1 + y], [x >= 3, Not(8 <= x), y == 2 + x, Not(x <= y)], [x >= 3, Not(8 <= x), y == 2 + x, x == 1 + y]]
   >>> to_DNF(x<8)
@@ -567,23 +579,23 @@ def to_DNF(fml):
   return final
 
 #---------- For interactive testing ----------
-x,y = Ints('x y')
-g = ConjFml()
-g.add([x==1, Or(x>=0, y<=1),y<2], update=True)
+# x,y = Ints('x y')
+# g = ConjFml()
+# g.add([x==1, Or(x>=0, y<=1),y<2], update=True)
 
-f = ConjFml()
-f.add([x==1,y==2])
+# f = ConjFml()
+# f.add([x==1,y==2])
 
-# s = EnhanSolver()
-# s.add_to_query([g])
+# # s = EnhanSolver()
+# # s.add_to_query([g])
 
-x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
-T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
-F = ConjFml()
-F.add([x>=0,y>=0,y<=20,x<=20], update=True)
+# x,y,_p_x,_p_y = Ints('x y _p_x _p_y')
+# T = Or(And(_p_x==x+2,x<8),And(_p_y==y-2,y>0),And(x==8,_p_x==0),And(y==0,_p_y==8))
+# F = ConjFml()
+# F.add([x>=0,y>=0,y<=20,x<=20], update=True)
 
-T = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
-cube = ConjFml()
-cube.add([x>=8])
+# T = Or(And(x >= 0, x < 8, y <= 8, y > 0, _p_x == x + 2, _p_y == y - 2),And(x == 8, _p_x == 0, y == 0, _p_y == 8))
+# cube = ConjFml()
+# cube.add([x>=8])
 
 # to_DNF(And(x>=3,Or(x<8,y>5)))
