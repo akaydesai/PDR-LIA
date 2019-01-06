@@ -1,0 +1,8 @@
+ Here is the final version of the project code, report and documentation. The 
+PDR implementation now uses one frame per solver and we have tried to maximize 
+the use of push/pop features to maximize incremental solving.
+
+ We have also tried our best to document the constituent code for posterity. 
+To access the it without reading the source, run doxygen in this directory. 
+Then, simply open the "namespaces.html" file in the "html" directory. For
+details on how to run the script, on the namespaces page, click on "pdr". 

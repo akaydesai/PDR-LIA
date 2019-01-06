@@ -1,0 +1,137 @@
+1. CTI/RI (Counter-Example To Induction or Relative inductiveness) check and related SAT/SMT queries:
+
+   This is the basic step performed in the iterative blocking phase after adding a new frame to the trace.
+   It generates proof obligations (CTI states) for every frame in the current trace and
+   results in strengthening (i.e., adding clauses) to selected frames (i>0) in the current trace.
+
+   If Fi (i>0) is a new frame, the proof obligations are (s, i), for every cube s in !P
+   If Fi (i>0) is an old frame, you need to perform the following RI check for every proof obligation (s,i+1)
+      to generate proof obligations for Fi
+   
+   RI-Check SAT[Ri(X) && !s(X) && T(X,X’) && s(X')] succeeds, i.e., s is reachable from Fi
+      where (s, i+1) is a proof obligation in Ri+1, i.e., s is a cube denoting a bad state in Ri+1
+      Then add (t,i) as a proof obligation for Fi, for every min-term t in the pre-image of s under T
+
+   
+   Strengthening Step:
+     When done: RI check at Fi fails, i.e., UNSAT[Ri(X) && !s(X) && T(X,X’) && s(X')]
+                AND !s does not intersect with R0
+                then add clause !s to every frame 0 < j <= i+1
+		
+   Generalization Step:
+      For performance reasons, one has to generalize, i.e., use weaker cubes,
+      a proof obligation (i, s) at each Fi, before it is backward propagated and used for strengthening
+            so larger sets of bad states will be eliminated.
+	    
+      What does generalization mean?
+        Suppose, s(X,Y) is a proof obligation generated at Fi (i>0).
+	Can you generate a weaker pred t(X) s.t. t(X) is still a proof obligation?
+	Assuming phi(X,Y) is the criteria for generating s(X,Y), the original obligation,
+	  generalization requires you to synthesize a constraint t(X) s.t. (Exists X. (Forall Y. pi(X,Y) ))
+	In our case, phi(X,Y) can simply be s(X,Y), the proof obligation at i.
+
+      
+Summary: The 3 main basic SMT ops required for this phase are the following.
+
+a. RI-check query
+b. Pre-image computation
+c. Generalization
+
+2. Checks and SAT/SMT queries required for forward clause propagation phase:
+
+   This step is the basic operation for iterative propagation phase.  It is an optimization
+   phase that speeds up convergence.  It is done once after every blocking phase is completed
+
+   The query at every frame i, i>0, is:
+      UNSAT[Ri(X) && T(X,X') && !c(X')], for every clause c in Fi
+      If the UNSAT query succeeds, then propagate c to F_i+1,
+          if c is not subsumed by any of the clauses in F_i+1.
+
+**********************************
+
+
+
+	   then s is a model (CEX) resulting from the satisfiable CTI query at frame i+2
+	 - such a !s is also known as a "learned" clause at Ri
+       Note1: To check if s is unreachable from R, you actually need to check UNSAT[Ri && T && s'].
+             But there is no harm in including !s can be more optimal, why? because 
+	     if Ri && !s is false the whole thing is
+	     UNSAT, anyway. By including !s one is likely to get UNSAT quicker.
+       Note2: What are proof obligations (s,i+1) for a NEW frame i+1?
+              
+       Note3: In general, one will generalize the proof obligation (s, i+1) before checking if it's blocked
+
+
+Justification for strengthening:
+     - !s blocks a bad state s, as it should never be part of an inductive inv
+       - if is reachable in i+1 steps from R0, then it is a witness to a bug
+       - even if it is unreachable from R0 it needs to be blocked anyways
+       - reason for blocking every where is to preserve the inclusive relationship
+         and no harm in removing them
+
+
+Forward Clause Propagation:
+      For every frame i and c in Ri s.t. RTI query is UNSAT, add c to Ri+1
+      Note: There is no point in propagating clause from i to i+1,
+            if it is already subsumed by another clause in i+1.  This can be done by a syntactic check
+	    for SAT.
+
+
+   Justification for forward clause propagation (FCP):
+
+     Note: FCP is relevant to a clause c that is added during blocking phase
+           to a frame i in a trace that are not in frames > i.  Such a clause c blocks
+	   a bad state (represented by cube s) in Ri that leads to a !P state
+
+     Q: Why is it sound to propagate such a clause c from Ri to Ri+1?
+     A: Ri+1 is meant to contain every state reachable from R0 in i+1 steps or fewer.  Relative inductiveness
+        ensures that every successor in Ri is in c; this may eliminate some unreachable states that are
+	inductive, but no harm in that.
+	
+
+     Q: What's the harm in propagating a clause (cl) that is NOT inductive relative to Ri?
+     A: If we did this it will eliminate some legitimate states reachable in i+1 steps 
+
+
+     Q: what is the advantage of such a propagation?
+     A: This can several states in c from unnecessarily from being considered for CTI checks.
+        This move has max benefit when the blocking clause c is a generalization of !s.
+
+      A General Observation about the trace.
+      What does Ri (i>0) have or not have at any particular point after completion of blocking
+      and propagation phase?
+        - all good states reachable from R0 in up to i steps
+        - Does not have any bad state (reachable or unreachable from R0) of witness length <= i
+           - that is, any state from which a !P state is reachable in i or fewer steps
+        - It can have bad states (reachable or unreachable from R0) of witness length >i 
+
+
+3. Generalization criteria:
+   A simple generalization criteria is to drop any literal from the cube s (used in the CTI query) as long as it
+   keeps the query UNSAT.  Justification for this is all such additional states are unreachable from previous
+   frame i and will remain so.
+
+   This can be checked by dropping one literal at a time through repeated SAT/SMT queries.  A better strategy
+   is to get the UNSAT core from the UNSAT query and drop every literal in s that is contained in the UNSAT
+   core.
+   
+
+4. Termination Check:
+   Syntactic check of Ri and Ri+1 being identical (in the clauses they have), where Ri+1 is the latest frame
+   in the trace.
+
+5. Data structured needed for IC3 implementation
+   - Trace: A sequence of formulas in CNF over the same set of variables
+   - A queue of proof obligations: [(s1,k1), (s2,k2),....(sj, kj)], where (si,ki) denotes the pending proof
+     obligation at frame i.
+     Note1: not every frame in the trace need to have a proof obligation.
+     Note2: (sj, kj) will not be removed until all proof obligations earlier in the queue are removed/blocked.
+
+
+   
+
+
+
+
+
+
